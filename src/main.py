@@ -7,7 +7,6 @@ sys.path.append(cd_fond_sat)
 import shutil
 from CNF import CNF
 from parser import Parser
-from myTask import MyTask
 from timeit import default_timer as timer
 import argparse
 import random
@@ -54,7 +53,7 @@ args_parser.add_argument('--strong',
     help='Search for strong  solutions (instead of default strong cyclic solutions) - (default: %(default)s)')
 args_parser.add_argument('--start',
     type=int,
-    default=1,
+    default=0,
     help='Size of the policy to start trying (default: %(default)s)')
 args_parser.add_argument('--inc',
     type=int,
@@ -173,10 +172,10 @@ for i in range(params['start'], 1000):   # try up to controller of size 1000
 
 
     if solver == 'glucose':
-       	command = './glucose {} {}'.format(name_formula_file, name_output_satsolver)
+        command = './glucose {} {}'.format(name_formula_file, name_output_satsolver)
     elif solver == 'minisat':
         # command = './minisat {} {}'.format(name_formula_file, name_output_satsolver)
-        command = './minisat -mem-lim={} -cpu-lim={} {} {}'.format(mem_limit, time_for_sat, name_formula_file, name_output_satsolver)
+        command = './minisat -mem-lim={} -cpu-lim={} {} {}'.format(mem_limit, time_for_sat, name_final, name_output_satsolver) #debug
         print(command)
     else:
         print(f"Unknown SAT solver {solver}")
