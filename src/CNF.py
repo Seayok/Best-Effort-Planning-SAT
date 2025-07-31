@@ -1,9 +1,5 @@
-import sys
-from myTask import MyTask
 from timeit import default_timer as timer
 from draw_controller import draw
-from itertools import islice
-import os
 
 class MyCNFError(Exception):
     def __init__(self, value):
@@ -24,7 +20,9 @@ class CNF:
     type8 = 'Replacement-Equality'
     type9 = 'Inequality-CSCS'
     type10 = 'Replacement-Goal'
-    num_types = 18
+    type11 = 'NotContain'
+    type12 = 'PreImage'
+    num_types = 20
     print_types = [1, 2, 3, 7]
 
     def __init__(self, n_file, n_file_extra, fair, strong):
@@ -111,6 +109,16 @@ class CNF:
         self.assignKey(var, 8)
         return var
 
+    def generateNotContain(self, n1, n2, atom):
+        var = 'NotContain(' + n1 + ',' + n2 + ',' + atom + ')'
+        self.assignKey(var, 19)
+        return var
+    
+    def generatePreImage(self, n1, a, i, n2):
+        var = 'PreImage(' + n1 + ',' + a + ',' + str(i) + ',' + n2 + ')'
+        self.assignKey(var, 20)
+        return var
+
     def generateInequalityN(self, n1, n2):  # n1 < n2
         var = n1 + '<' + n2
         self.assignKey(var, 9)
@@ -148,6 +156,7 @@ class CNF:
         var = 'U(' + n + ',unfair)'
         self.assignKey(var, 17)
         return var
+
 
     def generateLowerPredecessor(self, n1, n2):
         var = 'Lower(' + n1 + ', ' + n2 + ')'
@@ -207,6 +216,7 @@ class CNF:
                 if var > 0:
                     varName = self.mapNumberVariable[var]
                     t = self.mapVariableType[varName]
+                    print(varName, t) #debug
                     sets[t - 1].add(varName)
         return True, sets
 
@@ -223,6 +233,7 @@ class CNF:
                     x += 'Atom (CS)\n'
                     x += '___________________\n'
                     for n in controllerStates:
+                        x += n + ' ' + str(len(s)) + '\n' #debug
                         x += '----------\n'
                         for j in s:
                             ind = '(' + n + ')'
@@ -394,8 +405,10 @@ class CNF:
     ###########################################
 
     def generate_clauses(self, planningTask, initialCState, goalCState, controllerStates, k, parser=None, debug=False):
-        self.generateInitial(planningTask, initialCState, debug)
-        self.generateGoal(planningTask, goalCState, debug)
+        # Weak planning: modify nondet + preimage + reachGWeak
+        self.generateNotContainClauses(planningTask, controllerStates, debug) # Change
+        # self.generateInitial(planningTask, initialCState, debug)
+        self.generateGoal(planningTask, goalCState, debug) # Change
         self.generatePreconditions(planningTask, controllerStates, debug)
         self.generatePossibleNonDet(planningTask, controllerStates, debug)
         self.generateOneSuccessor(planningTask, controllerStates, debug)
@@ -403,10 +416,42 @@ class CNF:
         self.generateAtLeastOneAction(planningTask, controllerStates, debug)
         self.generateNegativeForwardPropagation(planningTask, controllerStates, debug)
         self.generateGeneralizeConnection(planningTask, controllerStates, debug)
-        self.generateReachableIClauses(planningTask, initialCState, controllerStates, k, debug)
-        self.generateReachableGClauses(planningTask, controllerStates, goalCState, k, debug)
-        self.generateSymmetryBreaking(planningTask, controllerStates, initialCState, goalCState, debug)
+        # self.generateReachableIClauses(planningTask, initialCState, controllerStates, k, debug)
+        self.generateReachableGClauses(planningTask, controllerStates, goalCState, k, debug) # change
+        self.generateSymmetryBreaking(controllerStates, debug)
         self.generateMutexGroupsClauses(planningTask, controllerStates, debug)
+        self.generatePreImagesClauses(planningTask, controllerStates, k - 1, debug)
+    
+    ###########################################
+    ################ NOTCONTAIN ###############
+    ###########################################
+    def generateNotContainClauses(self, task, controllerStates, debug = False):
+        # OR_p NotContain(p, x, x') or NotContain(p, x', x) for x' != x
+        c1, v1 = self.get_num_cl_vars()
+        atoms = task.get_atoms()
+        start = timer()
+        for n1 in controllerStates:
+            for n2 in controllerStates:
+                if n1 == n2:
+                    continue
+                biglor = []
+                for a in atoms:
+                    triplet = self.generateNotContain(n1, n2, a)
+                    triplet1 = self.generateNotContain(n2, n1, a)
+                    atomController1 = self.generateAtomControllerState(a, n1)
+                    atomController2 = self.generateAtomControllerState(a, n2)
+                    # NotContain(p, x, x') <-> Atom(p, x) \land -Atom(p, x')
+                    # -> Direction
+                    self.addClause(['-' + triplet, atomController1])
+                    self.addClause(['-' + triplet, '-' + atomController2])
+                    # <- Direction #maybe not needed?
+                    self.addClause(['-' + atomController1, atomController2, triplet])
+                    biglor.append(triplet)
+                    biglor.append(triplet1)
+                # self.addClause(biglor) # Weak planning
+        c2, v2 = self.get_num_cl_vars()
+        if debug:
+            print('Generation: NotContain\t\t v %i \t\t c : %i \t\t %f' % (v2 - v1, c2 - c1, timer() - start))
 
     ###########################################
     ################ INITIAL ##################
@@ -433,14 +478,19 @@ class CNF:
 
     def generateGoal(self, task, goalCState, debug=False):
         # p(ng) for all p in goal state
+        # -p(ng) for all p not in goal state
         c1, v1 = self.get_num_cl_vars()
         start = timer()
         goal = task.get_goal()
         atoms = task.get_atoms()
+        print(goal) #debug
+        print(atoms) #debug
         for a in atoms:
+            variable = self.generateAtomControllerState(a, goalCState)
             if a in goal:
-                variable = self.generateAtomControllerState(a, goalCState)
                 self.addClause([variable])
+            else:
+                self.addClause(['-' + variable])
 
         c2, v2 = self.get_num_cl_vars()
         if debug:
@@ -454,7 +504,6 @@ class CNF:
         # (n, b) --> p(n) // if p \in prec(b)
         c1, v1 = self.get_num_cl_vars()
         start = timer()
-        atoms = task.get_atoms()
         actions = task.get_actions()
 
         for n in controllerStates:
@@ -473,6 +522,28 @@ class CNF:
     ###########################################
     ############## NON-DET ####################
     ###########################################
+    def generateMyPossibleNonDet(self, task, controllerStates, debug=False):
+        # (n, b) -> (n, b') // if siblings
+        # (n, b) -> -(n, b'')
+        c1, v1 = self.get_num_cl_vars()
+        start = timer()
+        for n in controllerStates:
+            for a in task.get_actions():
+                var1 = self.generatePairActionControllerState(a, n)
+                other_actions = task.get_other_actions(a)
+                for a2 in task.get_actions():
+                    if a2 == a:
+                        continue
+                    var2 = self.generatePairActionControllerState(a2, n)
+                    if a2 in other_actions:
+                        self.addClause(['-' + var1, var2])
+                    else:
+                        self.addClause(['-' + var1, '-' + var2]) 
+
+        c2, v2 = self.get_num_cl_vars()
+        if debug:
+            print('Generation: Non Det\t\t v %i \t\t c : %i \t\t %f' % (v2 - v1, c2 - c1, timer() - start))
+        
 
     def generatePossibleNonDet(self, task, controllerStates, debug=False):
         # 1. (n, act) --> (n, act') // act, act' are non det act of equal det action (action names)
@@ -485,13 +556,14 @@ class CNF:
         for n in controllerStates:
             for act in acts:
                 var_pair = self.generatePairActionControllerState(act, n)
-                other_acts = task.get_other_actions_name(act)
+                other_acts = task.get_other_actions_name(act) # same non-det act
                 for act2 in acts:
                     if act2 == act:
                         continue
                     var_pair2 = self.generatePairActionControllerState(act2, n)
                     if act2 in other_acts:
-                        self.addClause(['-' + var_pair, var_pair2])  # 1
+                        #self.addClause(['-' + var_pair, var_pair2])  # 1
+                        continue # Weak Planning
                     else:
                         self.addClause(['-' + var_pair, '-' + var_pair2])  # 2
 
@@ -511,7 +583,8 @@ class CNF:
                     if other == a:
                         continue
                     var2 = self.generatePairActionControllerState(other, n)
-                    self.addClause(['-' + var1, var2])  # 3
+                    # self.addClause(['-' + var1, var2])  # 3 remove if Weak planning
+                    #self.addClause(['-' + var1, '-' + var2])  # Weak planning
 
         c2, v2 = self.get_num_cl_vars()
         if debug:
@@ -520,6 +593,23 @@ class CNF:
     ###########################################
     ############## ONE SUCC ###################
     ###########################################
+
+    def generateMyOneSuccessor(self, task, controllerStates, debug=False):
+        # (n, b) <-> \OR_{n'}Trans(n, b, n')
+        # -(n, b, n') \lor -(n, b, n'')
+        c1, v1 = self.get_num_cl_vars()
+        start = timer()
+
+        for n1 in controllerStates:
+            for a in task.get_actions():
+                for n2 in controllerStates:
+                    for n3 in controllerStates:
+                        if n3 == n2:
+                            continue
+                        var1 = self.generateTripletCSACS(n1, a, n2)
+                        var2 = self.generateTripletCSACS(n1, a, n3)
+                        self.addClause(['-' + var1, '-' + var2])  # 3
+
 
     def generateOneSuccessor(self, task, controllerStates, debug=False):
         # 1. (n, act) --> \OR_{b} (n, b) // for b with name act
@@ -629,7 +719,7 @@ class CNF:
         # for a in actions:
         #	print(a, task.get_del_list(a))
         #	print(a, task.get_add_list(a))
-
+ 
         for n1 in controllerStates:
             for n2 in controllerStates:
                 for p in atoms:
@@ -732,7 +822,8 @@ class CNF:
         self.generateReachableGInitial(task, goalCState, controllerStates, k - 1, debug)
         self.generateCompletionReachabilityG(task, controllerStates, k - 1, debug)
         if self.strong:
-            self.generatePropagationReachableGStrong(task, controllerStates, k - 1, debug)
+            #self.generatePropagationReachableGStrong(task, controllerStates, k - 1, debug)
+            self.generatePropagationReachableGWeak(task, controllerStates, k - 1, debug)
         else:
             if not self.fair:
                 self.generatePropagationReachableGUnfair(task, controllerStates, k - 1, debug)
@@ -918,6 +1009,48 @@ class CNF:
         if debug:
             print('Generation: RG prop\t\t v %i \t\t c : %i \t\t %f' % (v2 - v1, c2 - c1, timer() - start))
 
+
+    def generatePropagationReachableGWeak(self, task, controllerStates, k, debug=False):
+        # ReachG(n, j+1) <--> \OR_{n'} [(n,n') \land ReachG(n', j)]
+        c1, v1 = self.get_num_cl_vars()
+        start = timer()
+        # Force the equivalences
+        for i in range(k):
+            for n1 in controllerStates:
+                if n1 == 'ng':
+                    continue
+                for n2 in controllerStates:
+                    var1 = self.generateReplacementGoalPropagation(n1, n2, i)
+                    var2 = self.generatePairCSCS(n1, n2)
+                    var3 = self.generateReachableG(n2, i)
+                    self.addClause(['-' + var1, var2])
+                    self.addClause(['-' + var1, var3])
+                    self.addClause([var1, '-' + var2, '-' + var3])
+        # Right arrow
+        for n1 in controllerStates:
+            if n1 == 'ng':
+                continue
+            for i in range(k):
+                var1 = self.generateReachableG(n1, i + 1)
+                var2 = ['-' + var1]
+                for n2 in controllerStates:
+                    var3 = self.generateReplacementGoalPropagation(n1, n2, i)
+                    var2.append(var3)
+                self.addClause(var2)
+        # Left arrow
+        for n1 in controllerStates:
+            if n1 == 'ng':
+                continue
+            for i in range(k):
+                var1 = self.generateReachableG(n1, i + 1)
+                for n2 in controllerStates:
+                    var2 = self.generateReplacementGoalPropagation(n1, n2, i)
+                    self.addClause([var1, '-' + var2])
+
+        c2, v2 = self.get_num_cl_vars()
+        if debug:
+            print('Generation: RG prop\t\t v %i \t\t c : %i \t\t %f' % (v2 - v1, c2 - c1, timer() - start))
+
     def generatePropagationReachableGStrong(self, task, controllerStates, k, debug=False):
         # ReachG(n, j+1) <--> \AND_{n'} [(n,n') --> ReachG(n', j)]
         c1, v1 = self.get_num_cl_vars()
@@ -962,7 +1095,7 @@ class CNF:
     ############## SYMM-BREAKING ##############
     ###########################################
 
-    def generateSymmetryBreaking(self, task, controllerStates, initialCState, goalCState, debug=False):
+    def generateSymmetryBreaking(self, controllerStates, debug=False):
         c1, v1 = self.get_num_cl_vars()
         start = timer()
 
@@ -1006,3 +1139,53 @@ class CNF:
 
     def __get_all_pairs(self, els):
         return [(e1, e2) for (i1, e1) in enumerate(els) for (i2, e2) in enumerate(els) if i2 > i1]
+
+    ###########################################
+    ############## PREIMAGE ###################
+    ###########################################
+
+    def generatePreImagesClauses(self, task, controllerStates, k, debug=False):
+        # ReachG(n, i) \land \LAND_{p \in del_b}-p(n) -> \OR_{n'}PreImage(n, b, i, n')
+        print("here") #debug
+        c1, v1 = self.get_num_cl_vars()
+        start = timer()
+        for i in range(k):
+            for a in task.get_actions():
+                for n in controllerStates:
+                    var1 = self.generateReachableG(n, i)
+                    print(var1)
+                    disj = ['-' + var1]
+                    for p in task.get_del_list(a):
+                        var2 = self.generateAtomControllerState(p,n)
+                        disj.append(var2)
+                    for n1 in controllerStates:
+                        var3 = self.generatePreImage(n, a, i, n1)
+                        disj.append(var3)
+                    self.addClause(disj)
+        # PreImage(n, b, i, n') <-> ReachG(n', i + 1) \land \AND_{p not in pre_b, p in add_b} -p(x') \land \AND_{p not in pre_b, p not in add_b} -NotContain(p, n', n)
+        for n in controllerStates:
+            for b in task.get_actions():
+                for i in range(k):
+                    for n1 in controllerStates:
+                        var1 = self.generatePreImage(n, b, i, n1)
+                        var2 = self.generateReachableG(n1, i + 1)
+                        disj = [var1, '-' + var2]
+                        self.addClause(['-' + var1, var2])
+                        for p in task.get_atoms():
+                            if p not in task.get_preconditions(b):
+                                if p in task.get_add_list(b):
+                                    var3 = self.generateAtomControllerState(p, n1)
+                                else:
+                                    var3 = self.generateNotContain(n1, n, p)
+                                self.addClause(['-' + var1, '-' + var3])
+                                disj.append(var3)
+                        self.addClause(disj)
+        
+        
+                        
+
+                
+        c2, v2 = self.get_num_cl_vars()
+        if debug:
+            print('Generation: PreImage\t\t v %i \t\t c : %i \t\t %f' % (v2 - v1, c2 - c1, timer() - start))
+
