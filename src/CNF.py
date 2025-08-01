@@ -22,7 +22,7 @@ class CNF:
     type10 = 'Replacement-Goal'
     type11 = 'NotContain'
     type12 = 'PreImage'
-    num_types = 20
+    num_types = 21
     print_types = [1, 2, 3, 7]
 
     def __init__(self, n_file, n_file_extra, fair, strong):
@@ -117,6 +117,11 @@ class CNF:
     def generatePreImage(self, n1, a, i, n2):
         var = 'PreImage(' + n1 + ',' + a + ',' + str(i) + ',' + n2 + ')'
         self.assignKey(var, 20)
+        return var
+
+    def generateNewPreImage(self, n1, a, n2):
+        var = 'PreImage(' + n1 + ',' + a + ',' + n2 + ')'
+        self.assignKey(var, 21)
         return var
 
     def generateInequalityN(self, n1, n2):  # n1 < n2
@@ -418,9 +423,11 @@ class CNF:
         self.generateGeneralizeConnection(planningTask, controllerStates, debug)
         # self.generateReachableIClauses(planningTask, initialCState, controllerStates, k, debug)
         self.generateReachableGClauses(planningTask, controllerStates, goalCState, k, debug) # change
+        self.generateWeakReachGClauses(controllerStates, k - 1, debug)
         self.generateSymmetryBreaking(controllerStates, debug)
         self.generateMutexGroupsClauses(planningTask, controllerStates, debug)
-        self.generatePreImagesClauses(planningTask, controllerStates, k - 1, debug)
+        # self.generatePreImagesClauses(planningTask, controllerStates, k - 1, debug) Weak
+        self.generateNewPreImagesClauses(planningTask, controllerStates, debug)
     
     ###########################################
     ################ NOTCONTAIN ###############
@@ -1189,3 +1196,50 @@ class CNF:
         if debug:
             print('Generation: PreImage\t\t v %i \t\t c : %i \t\t %f' % (v2 - v1, c2 - c1, timer() - start))
 
+    def generateNewPreImagesClauses(self, task, controllerStates, debug=False):
+        # \LAND_{p \in del_b}-p(n) -> \OR_{n'}NewPreImage(n, b, n')
+        c1, v1 = self.get_num_cl_vars()
+        start = timer()
+        for a in task.get_actions():
+            for n in controllerStates:
+                disj = []
+                for p in task.get_del_list(a):
+                    var2 = self.generateAtomControllerState(p,n)
+                    disj.append(var2)
+                for n1 in controllerStates:
+                    var3 = self.generateNewPreImage(n, a, n1)
+                    disj.append(var3)
+                self.addClause(disj)
+        # PreImage(n, b, n') <-> \AND_{p not in pre_b, p in add_b} -p(x') \land \AND_{p not in pre_b, p not in add_b} -NotContain(p, n', n)
+        for n in controllerStates:
+            for b in task.get_actions():
+                for n1 in controllerStates:
+                    var1 = self.generateNewPreImage(n, b, n1)
+                    disj = [var1]
+                    for p in task.get_atoms():
+                        if p not in task.get_preconditions(b):
+                            if p in task.get_add_list(b):
+                                var3 = self.generateAtomControllerState(p, n1)
+                            else:
+                                var3 = self.generateNotContain(n1, n, p)
+                            self.addClause(['-' + var1, '-' + var3])
+                            disj.append(var3)
+                    self.addClause(disj)
+    
+        
+                        
+
+                
+        c2, v2 = self.get_num_cl_vars()
+        if debug:
+            print('Generation: PreImage\t\t v %i \t\t c : %i \t\t %f' % (v2 - v1, c2 - c1, timer() - start))
+
+    def generateWeakReachGClauses(self, controllerStates, k,  debug):
+        c1, v1 = self.get_num_cl_vars()
+        start = timer()
+        for n in controllerStates:
+            self.addClause([self.generateReachableG(n, k)])
+
+        c2, v2 = self.get_num_cl_vars()
+        if debug:
+            print('Generation: RG init\t\t v %i \t\t c : %i \t\t %f' % (v2 - v1, c2 - c1, timer() - start))
