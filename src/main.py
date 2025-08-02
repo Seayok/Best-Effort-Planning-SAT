@@ -123,10 +123,13 @@ fair = my_task.is_fair()
 name_formula_file = os.path.join(TMP_DIR, 'formula.txt')               # aux file
 name_formula_file_extra = os.path.join(TMP_DIR, 'formula-extra.txt')    # aux file
 name_output_satsolver = os.path.join(TMP_DIR, 'outsat.txt')             # aux file
+name_final = 'holder.txt'
 cnf = CNF(name_formula_file, name_formula_file_extra, fair, strong)  # generate CNF formla into aux files
 
 solver_time = []
-for i in range(params['start'], 1000):   # try up to controller of size 1000
+controllerArr = [-1, 0]
+i = params['start']
+while i < 1000:
     if timer() - time_start > time_limit - time_buffer:
         clean(name_formula_file, name_output_satsolver, name_SAS_file, name_formula_file_extra, name_final,
                        '-> OUT OF TIME')
@@ -145,8 +148,9 @@ for i in range(params['start'], 1000):   # try up to controller of size 1000
     start_g = timer()
 
     ## 1 - GENERATE CNF for the particular size of the controller
-    #       Use n0 and ng are the atoms for initial and goal controller states
-    cnf.generate_clauses(my_task, 'n0', 'ng', controllerStates, len(controllerStates), p, show_gen_info)
+    #       Use ng as the atoms for initial and goal controller states
+    controllerArr[-1] = i
+    cnf.generate_clauses(my_task, 'ng', controllerStates, len(controllerStates), controllerArr, show_gen_info)
 
     print('SAT formula generation time = {:f}'.format(timer() - start_g))
     print('# Clauses = {}'.format(cnf.getNumberClauses()))
@@ -192,22 +196,45 @@ for i in range(params['start'], 1000):   # try up to controller of size 1000
     ## 3 - PARSE OUTPUT OF SAT SOLVER AND CHECK IF IT WAS SOLVED
     #TODO: would be nice to have this return a representation of the policy, and then have a print facility
     result, res_sets = cnf.parseOutput(name_output_satsolver, solver)
+    
+    i += 1
 
-    if result:
-        out_txt = cnf.printController(res_sets, controllerStates, p, solver)
-        if not draw_policy and print_policy:
-                print(out_txt)
-        elif result and draw_policy:
-            file_name = os.path.join(TMP_DIR, f"result_{ID_RND}.txt")
-            with open(file_name, 'w+') as f:
-                f.write(out_txt)
-            draw_controller.draw(file_name, os.path.join(current_dir, "controller.dot"))
-    elif result is None:  # clean-up whatever aux files were generated for this iteration
-        clean(name_formula_file, name_output_satsolver, name_SAS_file, name_formula_file_extra, name_final,
-                    '-> OUT OF TIME/MEM')
-    if result:  # plan found, get out of the iteration!
-        break
-    print('UNSATISFIABLE')
+    if strong:
+        if not result:
+            controllerArr[-1] -= 1
+            if controllerArr[-1] == controllerArr[-2]:
+                print("========Planner result is in the previous iteration=========")
+                break
+            else:
+                controllerArr.append(0)
+                i -= 1
+        else:
+            out_txt = cnf.printController(res_sets, controllerStates, p)
+            if not draw_policy and print_policy:
+                    print(out_txt)
+            elif result and draw_policy:
+                file_name = os.path.join(TMP_DIR, f"result_{ID_RND}.txt")
+                with open(file_name, 'w+') as f:
+                    f.write(out_txt)
+                draw_controller.draw(file_name, os.path.join(current_dir, "controller.dot"))
+
+    else:
+        if result:
+            out_txt = cnf.printController(res_sets, controllerStates, p)
+            if not draw_policy and print_policy:
+                    print(out_txt)
+            elif result and draw_policy:
+                file_name = os.path.join(TMP_DIR, f"result_{ID_RND}.txt")
+                with open(file_name, 'w+') as f:
+                    f.write(out_txt)
+                draw_controller.draw(file_name, os.path.join(current_dir, "controller.dot"))
+        elif result is None:  # clean-up whatever aux files were generated for this iteration
+            clean(name_formula_file, name_output_satsolver, name_SAS_file, name_formula_file_extra, name_final,
+                        '-> OUT OF TIME/MEM')
+        if result:  # plan found, get out of the iteration!
+            break
+        else:
+            print('UNSATISFIABLE')
 
 print('Elapsed total time (s): {:f}'.format(timer() - time_start))
 print('Elapsed solver time (s): {:f}'.format(sum(solver_time)))

@@ -127,9 +127,12 @@ class Parser:
         v = Variable()
         value = int(v.set_name(lines[0]))
         rg = int(lines[2])
+        mutex_g = []
         for i in range(rg):
             v.add_value(i, lines[2 + i + 1])
+            mutex_g.append((int(lines[0][3:]), i))
         self.variables[value] = v
+        self.mutex_groups.append(mutex_g)
 
     def process_mutex_group(self, lines):
         mutex_g = []
