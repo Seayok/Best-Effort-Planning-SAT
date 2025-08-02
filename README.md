@@ -1,6 +1,6 @@
-# FOND-SAT: A SAT-based FOND planning system for compact controllers
+# Best FOND-SAT: A SAT-based Best-effort FOND planning system
 
-FOND solver based on SAT, as per the following paper:
+This is a folk repository from the paper:
 
 * Tomas Geffner, Hector Geffner: [Compact Policies for Fully Observable Non-Deterministic Planning as SAT](https://arxiv.org/pdf/1806.09455.pdf). ICAPS 2018: 88-96
 
@@ -57,14 +57,10 @@ This would run the solver for the task 03 of the Islands domain, using Glucose a
                         Time limit (int) for solver in seconds (default: 3600).
   --mem_limit MEM_LIMIT
                         Memory limit (int) for solver in MB (default: 4096)
-  --strong              Search for strong solutions (instead of default strong cyclic solutions) - (default: False)
-  --start START         Size of the policy to start trying (default: 1)
-  --inc INC             Increments in controller size per step. By default the planner looks for a solution of size *2*, if it does not find one it looks for
-                        a solution of size *3*, and so on. If inc is set to *i*, the planner looks for a solution of size *2*, if it does not find one it
-                        looks for a solution of size *2+i*, and so on (default: 1)
+  --strong              Search for strong solutions (instead of default weak solutions) - (default: False)
+  --start START         Size of the policy to start trying (default: 0)
   --gen-info            Show info about SAT formula generation (default: False)
   --show-policy         Show final policy, if found (default: False)
-  --draw-policy         Draw final policy (controller), if found (default: False)
   --name-tmp NAME_TMP   Name for temporary folder; generally erased at the end.
   --tmp                 Do not clean temporary files created (default: False)
 ```
@@ -77,7 +73,3 @@ The policy displayed has 4 sections:
 * `(CS, Action with arguments)`: For each controller state `CS`, it prints what actions are applied in it.
 * `(CS, Action name, CS)`: For each controller state `CS`, it prints the action applied in that state (without arguments, for action with arguments check second section) and successor `CS`.
 * `(CS1, CS2)`: The controller can evolve from `CS1` to `CS`. In other words, the action applied in `CS1` may lead to controller state `CS2`.
-
-## Dual FOND planning
-
-The paper talks about what we call *Dual FOND planning*. Dual FOND problems are those in which some actions are *fair* and some are *unfair*. To set some action (or actions) as unfair, add `_unfair_` as the last part of the action name in the *pddl* file. The planner will then set this action as unfair.
