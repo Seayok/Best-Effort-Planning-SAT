@@ -129,6 +129,7 @@ cnf = CNF(name_formula_file, name_formula_file_extra, fair, strong)  # generate 
 solver_time = []
 controllerArr = [-1, 0]
 i = params['start']
+res_sets = []
 while i < 1000:
     if timer() - time_start > time_limit - time_buffer:
         clean(name_formula_file, name_output_satsolver, name_SAS_file, name_formula_file_extra, name_final,
@@ -150,7 +151,7 @@ while i < 1000:
     ## 1 - GENERATE CNF for the particular size of the controller
     #       Use ng as the atoms for initial and goal controller states
     controllerArr[-1] = i
-    cnf.generate_clauses(my_task, 'ng', controllerStates, len(controllerStates), controllerArr, show_gen_info)
+    cnf.generate_clauses(my_task, 'ng', controllerStates, len(controllerStates), controllerArr, res_sets, show_gen_info)
 
     print('SAT formula generation time = {:f}'.format(timer() - start_g))
     print('# Clauses = {}'.format(cnf.getNumberClauses()))
@@ -194,10 +195,11 @@ while i < 1000:
     print('Cumulated solver time: {}'.format(sum(solver_time)))
 
     ## 3 - PARSE OUTPUT OF SAT SOLVER AND CHECK IF IT WAS SOLVED
-    #TODO: would be nice to have this return a representation of the policy, and then have a print facility
-    result, res_sets = cnf.parseOutput(name_output_satsolver, solver)
+    result, res_sets_tmp = cnf.parseOutput(name_output_satsolver, solver)
     
     i += 1
+    if result:
+        res_sets = res_sets_tmp
 
     if strong:
         if not result:

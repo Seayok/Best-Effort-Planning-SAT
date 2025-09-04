@@ -233,6 +233,7 @@ class CNF:
                 if var > 0:
                     varName = self.mapNumberVariable[var]
                     t = self.mapVariableType[varName]
+                    #print(varName)
                     sets[t - 1].add(varName)
         return True, sets
 
@@ -347,9 +348,10 @@ class CNF:
     ############## GENERATION #################
     ###########################################
 
-    def generate_clauses(self, planningTask, goalCState, controllerStates, k, arr, debug=False):
-        self.generateNotContainClauses(planningTask, controllerStates, debug)
-        self.generateGoal(planningTask, goalCState, debug) # Change
+    def generate_clauses(self, planningTask, goalCState, controllerStates, k, arr, res_sets, debug=False):
+        #self.generatePrevious
+        self.generateNotContainClauses(planningTask, controllerStates, goalCState, debug)
+        self.generateGoal(planningTask, goalCState, debug) # ChangeTODO
         self.generatePreconditions(planningTask, controllerStates, debug)
         self.generatePossibleNonDet(planningTask, controllerStates, debug)
         self.generateOneSuccessor(planningTask, controllerStates, debug)
@@ -358,15 +360,15 @@ class CNF:
         self.generateNegativeForwardPropagation(planningTask, controllerStates, debug)
         self.generateGeneralizeConnection(planningTask, controllerStates, debug)
         self.generateReachableGClauses(planningTask, controllerStates, goalCState, k, arr, debug) # change
-        self.generateSymmetryBreaking(controllerStates, debug)
-        self.generateMutexGroupsClauses(planningTask, controllerStates, debug)
+        # self.generateSymmetryBreaking(controllerStates, debug)
+        self.generateMutexGroupsClauses(planningTask, controllerStates, debug) #change
         if not self.strong:
             self.generateNewPreImagesClauses(planningTask, controllerStates, debug)
     
     ###########################################
     ################ NOTCONTAIN ###############
     ###########################################
-    def generateNotContainClauses(self, task, controllerStates, debug = False):
+    def generateNotContainClauses(self, task, controllerStates, goalCState, debug = False):
         # OR_p NotContain(p, x, x') or NotContain(p, x', x) for x' != x
         c1, v1 = self.get_num_cl_vars()
         atoms = task.get_atoms()
@@ -376,21 +378,45 @@ class CNF:
                 if n1 == n2:
                     continue
                 biglor = []
-                for a in atoms:
-                    triplet = self.generateNotContain(n1, n2, a)
-                    triplet1 = self.generateNotContain(n2, n1, a)
-                    atomController1 = self.generateAtomControllerState(a, n1)
-                    atomController2 = self.generateAtomControllerState(a, n2)
-                    # NotContain(p, x, x') <-> Atom(p, x) \land -Atom(p, x')
-                    # -> Direction
-                    self.addClause(['-' + triplet, atomController1])
-                    self.addClause(['-' + triplet, '-' + atomController2])
-                    # <- Direction #maybe not needed?
-                    self.addClause(['-' + atomController1, atomController2, triplet])
-                    biglor.append(triplet)
-                    biglor.append(triplet1)
+                for mg in task.get_mutex_groups():
+                    for i, a in enumerate(mg):
+                        triplet = self.generateNotContain(n1, n2, a)
+                        triplet1 = self.generateNotContain(n2, n1, a)
+                        atomController1 = self.generateAtomControllerState(a, n1)
+                        atomController2 = self.generateAtomControllerState(a, n2)
+                        # NotContain(p, x, x') <-> Atom(p, x) \land -Atom(p, x')
+                        # -> Direction
+                        self.addClause(['-' + triplet, atomController1])
+                        self.addClause(['-' + triplet, '-' + atomController2])
+                        # <- Direction #maybe not needed?
+                        self.addClause(['-' + atomController1, atomController2, triplet])
+                        if i != len(mg) - 1:
+                            biglor.append(triplet)
+                            biglor.append(triplet1)
+                        
+                # for a in atoms:
+                #     triplet = self.generateNotContain(n1, n2, a)
+                #     triplet1 = self.generateNotContain(n2, n1, a)
+                #     atomController1 = self.generateAtomControllerState(a, n1)
+                #     atomController2 = self.generateAtomControllerState(a, n2)
+                #     # NotContain(p, x, x') <-> Atom(p, x) \land -Atom(p, x')
+                #     # -> Direction
+                #     self.addClause(['-' + triplet, atomController1])
+                #     self.addClause(['-' + triplet, '-' + atomController2])
+                #     # <- Direction #maybe not needed?
+                #     self.addClause(['-' + atomController1, atomController2, triplet])
+                #     biglor.append(triplet)
+                #     biglor.append(triplet1)
                 if self.strong:
                     self.addClause(biglor)
+
+        for n1 in controllerStates:
+            biglor = []
+            for p in atoms:
+                biglor.append(self.generateNotContain(goalCState, n1, p))
+            self.addClause(biglor)
+            
+            
         c2, v2 = self.get_num_cl_vars()
         if debug:
             print('Generation: NotContain\t\t v %i \t\t c : %i \t\t %f' % (v2 - v1, c2 - c1, timer() - start))
@@ -405,13 +431,17 @@ class CNF:
         c1, v1 = self.get_num_cl_vars()
         start = timer()
         goal = task.get_goal()
-        atoms = task.get_atoms()
-        for a in atoms:
-            variable = self.generateAtomControllerState(a, goalCState)
-            if a in goal:
-                self.addClause([variable])
-            else:
-                self.addClause(['-' + variable])
+        for mg in task.get_mutex_groups():
+            for i, a in enumerate(mg):
+                variable = self.generateAtomControllerState(a, goalCState)
+                if a in goal:
+                    self.addClause([variable])
+                # TODO
+                else:
+                    # if (i == len(mg) - 1) and not found:
+                    #     self.addClause([variable])
+                    # else:
+                        self.addClause(['-' + variable])
 
         c2, v2 = self.get_num_cl_vars()
         if debug:
@@ -661,16 +691,12 @@ class CNF:
         self.generateReachableGInitial(task, goalCState, controllerStates, k - 1, debug) # Clause 13), 16) in Strong
         self.generateCompletionReachabilityG(task, controllerStates, k - 1, debug) # 17)
         if self.strong:
-            #self.generateNewMinEClauses(task, controllerStates, k - 1, arr, debug)
             self.generateImageClauses(task, controllerStates, k - 1, arr, debug)
             self.generatePropagationReachableGStrong(controllerStates, k - 1, debug)
         else:
             self.generatePropagationReachableGWeak(controllerStates, k - 1, debug)
             self.generateWeakReachGClauses(controllerStates, k - 1, debug)
     
-
-    def generateNewMinEClauses(self, task, controllerStates, k, arr, debug=False):
-        return
 
     def generateImageClauses(self, task, controllerStates, k, arr, debug=False):
         c1, v1 = self.get_num_cl_vars()
@@ -714,7 +740,7 @@ class CNF:
                                 disj3.append(var7);
                             for p1 in task.get_atoms():
                                 if p1 not in task.get_add_list(a):
-                                    var8 = self.generateNotContain(p1,n2, n1)
+                                    var8 = self.generateNotContain(n2, n1, p1)
                                     self.addClause(['-' + var5, '-' + var8])
                                     disj3.append(var8)
                             if p not in task.get_add_list(a):
@@ -724,14 +750,6 @@ class CNF:
                             self.addClause(disj3) #19
                         self.addClause(disj2) #18
                             
-                        
-                        
-                            
-                            
-
-
-                
-                
 
                 
         c2, v2 = self.get_num_cl_vars()
@@ -889,12 +907,6 @@ class CNF:
         start = timer()
         mutex_groups = task.get_mutex_groups()
         for mg in mutex_groups:
-            for n in controllerStates:
-                disj = []
-                for p in mg:
-                    disj.append(self.generateAtomControllerState(p, n))
-                if self.strong:
-                    self.addClause(disj)
             pairs = self.__get_all_pairs(mg)
             for (a1, a2) in pairs:
                 for n in controllerStates:
